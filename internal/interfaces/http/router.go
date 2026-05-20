@@ -83,7 +83,7 @@ func LoginRateLimiter(store *rateLimitStore) func(http.Handler) http.Handler {
 			if !store.Allow(ip, 5) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				w.Write([]byte(`{"error":"Too Many Requests","message":"rate limit exceeded, try again later"}`))
+				w.Write([]byte(`{"error":"слишком много запросов","message":"превышен лимит запросов, попробуйте позже"}`))
 				return
 			}
 

@@ -3,11 +3,11 @@ package auth
 import "errors"
 
 var (
-	ErrInvalidCredentials  = errors.New("invalid credentials")
-	ErrEmailTaken          = errors.New("email already taken")
-	ErrUserNotFound        = errors.New("user not found")
-	ErrInvalidRefreshToken = errors.New("invalid refresh token")
-	ErrEmailNotVerified    = errors.New("email not verified")
-	ErrInvalidVerifyToken  = errors.New("invalid or expired verification token")
-	ErrTokenExpired        = errors.New("token expired")
+	ErrInvalidCredentials  = errors.New("неверные учётные данные")
+	ErrEmailTaken          = errors.New("email уже занят")
+	ErrUserNotFound        = errors.New("пользователь не найден")
+	ErrInvalidRefreshToken = errors.New("недействительный refresh-токен")
+	ErrEmailNotVerified    = errors.New("email не подтверждён")
+	ErrInvalidVerifyToken  = errors.New("недействительный или истёкший токен верификации")
+	ErrTokenExpired        = errors.New("срок действия токена истёк")
 )

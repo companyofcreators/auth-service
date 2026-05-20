@@ -83,12 +83,12 @@ func NewAuthHandler(
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid request body")
+		h.writeError(w, http.StatusBadRequest, "некорректное тело запроса")
 		return
 	}
 
-	if err := pkg.ValidateStruct(req); err != nil {
-		h.writeError(w, http.StatusBadRequest, err.Error())
+	if verrs := pkg.ValidateStruct(req); verrs != nil {
+		pkg.WriteValidationErrors(w, verrs)
 		return
 	}
 
@@ -101,11 +101,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, domain.ErrEmailTaken) {
-			h.writeError(w, http.StatusConflict, "email already taken")
+			h.writeError(w, http.StatusConflict, "email уже занят")
 			return
 		}
 		h.logger.Error("register failed", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		h.writeError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
@@ -122,12 +122,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid request body")
+		h.writeError(w, http.StatusBadRequest, "некорректное тело запроса")
 		return
 	}
 
-	if err := pkg.ValidateStruct(req); err != nil {
-		h.writeError(w, http.StatusBadRequest, err.Error())
+	if verrs := pkg.ValidateStruct(req); verrs != nil {
+		pkg.WriteValidationErrors(w, verrs)
 		return
 	}
 
@@ -137,15 +137,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) {
-			h.writeError(w, http.StatusUnauthorized, "invalid credentials")
+			h.writeError(w, http.StatusUnauthorized, "неверные учётные данные")
 			return
 		}
 		if errors.Is(err, domain.ErrEmailNotVerified) {
-			h.writeError(w, http.StatusForbidden, "email not verified")
+			h.writeError(w, http.StatusForbidden, "email не подтверждён")
 			return
 		}
 		h.logger.Error("login failed", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		h.writeError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
@@ -162,7 +162,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	refreshToken := h.getRefreshTokenFromCookie(r)
 	if refreshToken == "" {
-		h.writeError(w, http.StatusUnauthorized, "refresh token not found")
+		h.writeError(w, http.StatusUnauthorized, "refresh-токен не найден")
 		return
 	}
 
@@ -171,11 +171,11 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidRefreshToken) {
-			h.writeError(w, http.StatusUnauthorized, "invalid refresh token")
+			h.writeError(w, http.StatusUnauthorized, "недействительный refresh-токен")
 			return
 		}
 		h.logger.Error("refresh failed", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		h.writeError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
@@ -190,9 +190,9 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	userID := h.getUserIDFromContext(r)
+	userID := r.Header.Get("X-User-Id")
 	if userID == "" {
-		h.writeError(w, http.StatusUnauthorized, "not authenticated")
+		h.writeError(w, http.StatusUnauthorized, "не авторизован")
 		return
 	}
 
@@ -203,18 +203,18 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		RefreshToken: refreshToken,
 	}); err != nil {
 		h.logger.Error("logout failed", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		h.writeError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
 	h.clearCookies(w)
-	h.writeJSON(w, http.StatusOK, SuccessResponse{Message: "logged out"})
+	h.writeJSON(w, http.StatusOK, SuccessResponse{Message: "выход выполнен"})
 }
 
 func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		h.writeError(w, http.StatusBadRequest, "token is required")
+		h.writeError(w, http.StatusBadRequest, "токен обязателен")
 		return
 	}
 
@@ -222,21 +222,21 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		Token: token,
 	}); err != nil {
 		if errors.Is(err, domain.ErrInvalidVerifyToken) {
-			h.writeError(w, http.StatusBadRequest, "invalid or expired verification token")
+			h.writeError(w, http.StatusBadRequest, "недействительный или истёкший токен верификации")
 			return
 		}
 		h.logger.Error("verify email failed", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		h.writeError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, SuccessResponse{Message: "email verified successfully"})
+	h.writeJSON(w, http.StatusOK, SuccessResponse{Message: "email успешно подтверждён"})
 }
 
 func (h *AuthHandler) Validate(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Authorization")
 	if token == "" {
-		h.writeError(w, http.StatusUnauthorized, "authorization header required")
+		h.writeError(w, http.StatusUnauthorized, "заголовок Authorization обязателен")
 		return
 	}
 
@@ -248,7 +248,7 @@ func (h *AuthHandler) Validate(w http.ResponseWriter, r *http.Request) {
 		AccessToken: token,
 	})
 	if err != nil {
-		h.writeError(w, http.StatusUnauthorized, "invalid access token")
+		h.writeError(w, http.StatusUnauthorized, "недействительный access-токен")
 		return
 	}
 
@@ -337,8 +337,31 @@ func (h *AuthHandler) writeError(w http.ResponseWriter, status int, message stri
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	errResp := ErrorResponse{
-		Error:   http.StatusText(status),
+		Error:   statusText(status),
 		Message: message,
 	}
 	json.NewEncoder(w).Encode(errResp)
+}
+
+func statusText(code int) string {
+	switch code {
+	case http.StatusBadRequest:
+		return "некорректный запрос"
+	case http.StatusUnauthorized:
+		return "не авторизован"
+	case http.StatusForbidden:
+		return "доступ запрещён"
+	case http.StatusNotFound:
+		return "не найдено"
+	case http.StatusConflict:
+		return "конфликт"
+	case http.StatusUnprocessableEntity:
+		return "ошибка валидации"
+	case http.StatusTooManyRequests:
+		return "слишком много запросов"
+	case http.StatusInternalServerError:
+		return "внутренняя ошибка сервера"
+	default:
+		return "ошибка"
+	}
 }
