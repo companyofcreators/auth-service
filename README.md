@@ -1,87 +1,64 @@
-Auth Service
-auth-service/
-├── cmd/
-│   └── api/
-│       └── main.go
-├── internal/
-│   ├── app/
-│   │   └── container.go                # DI: репозитории, сервисы, хендлеры
-│   ├── config/
-│   │   └── config.go                   # PORT, DB_DSN, REDIS_URL, JWT_SECRET, ACCESS_TTL, REFRESH_TTL
-│   ├── domain/
-│   │   └── auth/
-│   │       ├── entity.go               # Credential (ID, Email, PasswordHash, CreatedAt), RefreshToken (UserID, TokenHash, ExpiresAt)
-│   │       ├── repository.go           # CredentialRepository, RefreshTokenRepository (интерфейсы)
-│   │       ├── service.go              # TokenService (интерфейс: GeneratePair, ValidateAccess, ValidateRefresh)
-│   │       └── errors.go
-│   ├── application/
-│   │   └── auth/
-│   │       ├── register.go             # RegisterUseCase (создание credential + генерация токенов)
-│   │       ├── login.go
-│   │       ├── refresh.go
-│   │       └── validate.go
-│   ├── infrastructure/
-│   │   ├── db/
-│   │   │   ├── postgres.go
-│   │   │   └── credential_repo.go      # реализация CredentialRepository (sqlx)
-│   │   ├── redis/
-│   │   │   ├── redis_client.go
-│   │   │   └── refresh_token_repo.go   # реализация RefreshTokenRepository (храним в Redis: ключ "refresh:user_id" → хеш токена, TTL)
-│   │   ├── jwt/
-│   │   │   └── jwt_service.go          # реализация TokenService (JWT + вызов refresh repo)
-│   │   └── hasher/
-│   │       └── bcrypt_hasher.go
-│   ├── interfaces/
-│   │   └── http/
-│   │       ├── handler/
-│   │       │   └── auth_handler.go
-│   │       ├── dto.go                  # RegisterRequest, LoginRequest, LoginResponse, ValidateRequest, ValidateResponse
-│   │       └── router.go
-│   └── pkg/
-│       ├── logger
-│       └── validator
-├── migrations/                         # только таблица credentials (id, email, password_hash, created_at)
-├── go.mod
-├── Dockerfile
-└── .env
+# Auth Service
 
-User Service 
+Сервис аутентификации. Управляет регистрацией, логином, JWT токенами.
 
-user-service/
-├── cmd/api/main.go
-├── internal/
-│   ├── config/
-│   ├── domain/
-│   │   └── user/
-│   │       ├── entity.go      # Profile (ID, FirstName, LastName, AvatarURL, ...)
-│   │       ├── repository.go
-│   │       └── service.go
-│   ├── infrastructure/db/postgres.go + user_repo.go
-│   ├── interfaces/http/
-│   │   ├── handler/profile_handler.go   # GET /internal/users/{id} (читает X-User-Id из заголовка для авторизации)
-│   │   ├── dto.go
-│   │   └── router.go
-│   └── pkg/...
-├── migrations/               # таблица user_profiles
-└── ...
+## Обязанности
 
-Api Gateway
-api-gateway/
-├── cmd/main.go
-├── internal/
-│   ├── app/container.go                 # DI: клиенты к auth-service, user-service, order-service
-│   ├── config/
-│   ├── middleware/
-│   │   └── auth.go                      # вызывает auth-service /validate
-│   ├── proxy/
-│   │   └── reverse_proxy.go
-│   ├── aggregator/
-│   │   ├── user_profile.go              # агрегирует из user-service (+ заказы)
-│   │   └── ...
-│   ├── transport/http/
-│   │   ├── router.go
-│   │   └── dto.go
-│   └── pkg/
-│       ├── logger
-│       └── http_client
-└── ...
+- Регистрация пользователей с ролями (user, master, moderator, admin)
+- Логин с проверкой bcrypt паролей
+- Выпуск JWT access токенов (RS256, 15 мин)
+- Refresh token rotation (opaque tokens, 30 дней)
+- Token theft detection
+- Email verification flow
+- Kafka события: user.created, auth.login, auth.logout, user.verification.created
+
+## Эндпоинты
+
+| Метод | Путь | Назначение | Auth |
+|-------|------|-----------|------|
+| `GET` | `/internal/health` | Health check | Нет |
+| `POST` | `/api/v1/auth/register` | Регистрация | Нет |
+| `POST` | `/api/v1/auth/login` | Логин | Нет |
+| `POST` | `/api/v1/auth/refresh` | Обновление токенов | Cookie |
+| `DELETE` | `/api/v1/auth/logout` | Выход | Cookie |
+| `GET` | `/api/v1/auth/verify-email?token=` | Подтверждение email | Нет |
+
+## Cookies
+
+| Cookie | TTL | HttpOnly | Secure (prod) | SameSite |
+|--------|-----|----------|---------------|----------|
+| `access_token` | 15m | Да | Да | Lax |
+| `refresh_token` | 30d | Да | Да | Lax |
+
+## Конфигурация
+
+| Переменная | По умолчанию | Описание |
+|-----------|-------------|----------|
+| `HTTP_ADDRESS` | `:8081` | Адрес HTTP сервера |
+| `DB_DSN` | — | PostgreSQL DSN |
+| `REDIS_ADDR` | `localhost:6379` | Адрес Redis |
+| `REDIS_PASSWORD` | — | Пароль Redis |
+| `REDIS_DB` | `0` | Номер БД Redis |
+| `JWT_PRIVATE_KEY_PATH` | — | Путь к RSA приватному ключу |
+| `ACCESS_TOKEN_TTL` | `15m` | Время жизни access токена |
+| `REFRESH_TOKEN_TTL` | `720h` | Время жизни refresh токена |
+| `KAFKA_BROKERS` | `localhost:9092` | Kafka брокеры |
+| `ENV` | `local` | Окружение |
+| `LOG_LEVEL` | `info` | Уровень логирования |
+
+## Безопасность
+
+- Пароли: bcrypt cost 12
+- JWT: RS256 с приватным ключом
+- Refresh tokens: opaque random 64-byte hex, хранятся как SHA256 в Redis
+- Token theft detection: при повторном использовании refresh — все токены юзера удаляются
+- Rate limiting: 5 попыток логина/регистрации в минуту с одного IP
+
+## Kafka Events
+
+| Topic | Триггер | Данные |
+|-------|---------|--------|
+| `user.created` | Успешная регистрация | user_id, email, roles |
+| `auth.login` | Успешный логин | user_id, email |
+| `auth.logout` | Выход | user_id |
+| `user.verification.created` | Нужна верификация email | user_id, email, verification_token |
