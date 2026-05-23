@@ -25,11 +25,11 @@ type Event struct {
 
 func NewProducer(brokers []string, logger *slog.Logger) *Producer {
 	writer := &kafka.Writer{
-		Addr:                   kafka.TCP(brokers...),
-		Balancer:               &kafka.LeastBytes{},
-		RequiredAcks:           kafka.RequireOne,
-		AllowAutoTopicCreation: true,
-		Async:                  true,
+		Addr:         kafka.TCP(brokers...),
+		Balancer:     &kafka.LeastBytes{},
+		RequiredAcks: kafka.RequireAll,
+		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  5 * time.Second,
 	}
 
 	return &Producer{

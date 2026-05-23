@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -14,11 +15,14 @@ import (
 )
 
 type RegisterInput struct {
-	Email    string
-	Password string
-	Name     string
-	Phone    string
-	Role     string
+	Email      string
+	Password   string
+	Name       string
+	FirstName  string
+	LastName   string
+	MiddleName string
+	Birthdate  string
+	Phone      string
 }
 
 type RegisterOutput struct {
@@ -30,6 +34,7 @@ type RegisterOutput struct {
 }
 
 type RegisterUseCase struct {
+	db             *sql.DB
 	credentialRepo domain.CredentialRepository
 	refreshRepo    domain.RefreshTokenRepository
 	verifyRepo     domain.VerifyTokenRepository
@@ -55,6 +60,7 @@ type EventPublisher interface {
 }
 
 func NewRegisterUseCase(
+	db *sql.DB,
 	credentialRepo domain.CredentialRepository,
 	refreshRepo domain.RefreshTokenRepository,
 	verifyRepo domain.VerifyTokenRepository,
@@ -67,6 +73,7 @@ func NewRegisterUseCase(
 	bcryptCost int,
 ) *RegisterUseCase {
 	return &RegisterUseCase{
+		db:             db,
 		credentialRepo: credentialRepo,
 		refreshRepo:    refreshRepo,
 		verifyRepo:     verifyRepo,
@@ -81,13 +88,9 @@ func NewRegisterUseCase(
 }
 
 func (uc *RegisterUseCase) Execute(ctx context.Context, input RegisterInput) (*RegisterOutput, error) {
-	if input.Role == "" {
-		input.Role = "user"
-	}
-
-	validRoles := map[string]bool{"user": true, "master": true, "moderator": true, "admin": true}
-	if !validRoles[input.Role] {
-		return nil, fmt.Errorf("invalid role: %s", input.Role)
+	// Auto-generate Name from FirstName + LastName if empty (backward-compatible)
+	if input.Name == "" {
+		input.Name = input.FirstName + " " + input.LastName
 	}
 
 	_, err := uc.credentialRepo.FindByEmail(ctx, input.Email)
@@ -114,15 +117,44 @@ func (uc *RegisterUseCase) Execute(ctx context.Context, input RegisterInput) (*R
 		CreatedAt:    now,
 	}
 
-	if err := uc.credentialRepo.Create(ctx, cred); err != nil {
-		return nil, fmt.Errorf("failed to create credential: %w", err)
+	tx, err := uc.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("начать транзакцию: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := uc.credentialRepo.CreateTx(ctx, tx, cred); err != nil {
+		return nil, fmt.Errorf("создать учётные данные: %w", err)
 	}
 
-	if err := uc.credentialRepo.InsertRole(ctx, userID, input.Role); err != nil {
-		return nil, fmt.Errorf("failed to insert role: %w", err)
+	if err := uc.credentialRepo.InsertRoleTx(ctx, tx, userID, "user"); err != nil {
+		return nil, fmt.Errorf("добавить роль: %w", err)
 	}
 
-	roles := []string{input.Role}
+	// Store user profile
+	profile := &domain.UserProfile{
+		UserID:     userID,
+		Name:       input.Name,
+		FirstName:  input.FirstName,
+		LastName:   input.LastName,
+		MiddleName: input.MiddleName,
+		Phone:      input.Phone,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if input.Birthdate != "" {
+		profile.Birthdate = &input.Birthdate
+	}
+
+	if err := uc.credentialRepo.CreateProfileTx(ctx, tx, profile); err != nil {
+		return nil, fmt.Errorf("создать профиль: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("зафиксировать транзакцию: %w", err)
+	}
+
+	roles := []string{"user"}
 
 	accessToken, err := uc.tokenService.GenerateAccessToken(userID.String(), input.Email, roles)
 	if err != nil {

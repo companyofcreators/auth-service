@@ -18,6 +18,7 @@ import (
 	infraredis "github.com/companyofcreators/auth-service/internal/infrastructure/redis"
 	"github.com/companyofcreators/auth-service/internal/interfaces/http/handler"
 	httprouter "github.com/companyofcreators/auth-service/internal/interfaces/http"
+	"github.com/companyofcreators/auth-service/pkg/header_auth"
 )
 
 func main() {
@@ -52,8 +53,9 @@ func main() {
 	defer pgDB.Close()
 	logger.Info("connected to postgresql")
 
-	if err := db.RunMigrations(pgDB); err != nil {
-		logger.Warn("some migrations failed, continuing", "error", err)
+	if err := db.RunMigrations(pgDB.SqlxDB()); err != nil {
+		logger.Error("some migrations failed", "error", err)
+		os.Exit(1)
 	}
 
 	redisClient, err := infraredis.Connect(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
@@ -79,11 +81,12 @@ func main() {
 	kafkaProducer := infrakafka.NewProducer(cfg.KafkaBrokers, logger)
 	defer kafkaProducer.Close()
 
-	credentialRepo := db.NewCredentialRepo(pgDB)
+	credentialRepo := db.NewCredentialRepo(pgDB.SqlxDB())
 	refreshRepo := infraredis.NewRefreshTokenRepo(redisClient)
 	verifyRepo := infraredis.NewVerifyTokenRepo(redisClient)
 
 	registerUC := app.NewRegisterUseCase(
+		pgDB.DB(),
 		credentialRepo,
 		refreshRepo,
 		verifyRepo,
@@ -129,6 +132,9 @@ func main() {
 		logger,
 	)
 
+	headerSigner := header_auth.NewHeaderSigner(cfg.HeaderHMACKey)
+	logger.Info("header signer initialized")
+
 	authHandler := handler.NewAuthHandler(
 		registerUC,
 		loginUC,
@@ -142,7 +148,9 @@ func main() {
 		cfg.Env,
 	)
 
-	router := httprouter.NewRouter(authHandler)
+	adminHandler := handler.NewAdminHandler(credentialRepo, logger)
+
+	router := httprouter.NewRouter(authHandler, adminHandler, headerSigner)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddress,
@@ -152,19 +160,23 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("auth service started", "address", cfg.HTTPAddress)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("http server failed", "error", err)
-			os.Exit(1)
+			serverErr <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	logger.Info("shutting down auth service")
+	select {
+	case <-quit:
+		logger.Info("shutting down auth service")
+	case err := <-serverErr:
+		logger.Error("http server failed", "error", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

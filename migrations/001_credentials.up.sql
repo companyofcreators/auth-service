@@ -15,4 +15,16 @@ CREATE TABLE IF NOT EXISTS user_roles (
     PRIMARY KEY (user_id, role)
 );
 
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id UUID PRIMARY KEY REFERENCES credentials(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL DEFAULT '',
+    first_name VARCHAR(100) NOT NULL DEFAULT '',
+    last_name VARCHAR(100) NOT NULL DEFAULT '',
+    middle_name VARCHAR(100) NOT NULL DEFAULT '',
+    birthdate DATE,
+    phone VARCHAR(50) NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_credentials_email ON credentials(email);

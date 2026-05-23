@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,7 +14,20 @@ type CredentialRepository interface {
 	FindByID(ctx context.Context, id uuid.UUID) (*Credential, error)
 	SetVerified(ctx context.Context, id uuid.UUID) error
 	InsertRole(ctx context.Context, userID uuid.UUID, role string) error
+	RemoveRole(ctx context.Context, userID uuid.UUID, role string) error
 	GetRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
+	CreateProfile(ctx context.Context, p *UserProfile) error
+	FindProfileByUserID(ctx context.Context, userID uuid.UUID) (*UserProfile, error)
+
+	// User moderation methods.
+	BanUser(ctx context.Context, userID uuid.UUID, reason string) error
+	UnbanUser(ctx context.Context, userID uuid.UUID) error
+	DeleteUser(ctx context.Context, userID uuid.UUID) error
+
+	// Tx variants for transactional registration.
+	CreateTx(ctx context.Context, tx *sql.Tx, c *Credential) error
+	InsertRoleTx(ctx context.Context, tx *sql.Tx, userID uuid.UUID, role string) error
+	CreateProfileTx(ctx context.Context, tx *sql.Tx, p *UserProfile) error
 }
 
 type RefreshTokenRepository interface {

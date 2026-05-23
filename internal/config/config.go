@@ -24,10 +24,13 @@ type Config struct {
 	LogLevel          string        `env:"LOG_LEVEL" env-default:"info"`
 	BcryptCost        int           `env:"BCRYPT_COST" env-default:"12"`
 	RequireEmailVerified bool       `env:"REQUIRE_EMAIL_VERIFIED" env-default:"false"`
+	HeaderHMACKey     string        `env:"HEADER_HMAC_KEY" env-default:"diploma-internal-hmac-secret-key-2026"`
 }
 
 func Load() *Config {
-	_ = godotenv.Load(".env")
+	if err := godotenv.Load(".env"); err != nil {
+		slog.Warn(".env file not found, using environment variables", "error", err)
+	}
 
 	var cfg Config
 	if err := cleanenv.ReadConfig(".env", &cfg); err != nil {

@@ -64,10 +64,6 @@ func (uc *RefreshUseCase) Execute(ctx context.Context, input RefreshInput) (*Ref
 		return nil, domain.ErrInvalidRefreshToken
 	}
 
-	if err := uc.refreshRepo.Delete(ctx, userID); err != nil {
-		uc.logger.Warn("failed to delete old refresh token", "error", err)
-	}
-
 	cred, err := uc.credentialRepo.FindByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find credential: %w", err)
@@ -88,9 +84,15 @@ func (uc *RefreshUseCase) Execute(ctx context.Context, input RefreshInput) (*Ref
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
+	// Save the new token BEFORE deleting the old one.
+	// If save fails, the old token remains valid.
 	newRefreshHash := sha256Hash(newRefreshToken)
 	if err := uc.refreshRepo.Save(ctx, userID, newRefreshHash, uc.refreshTTL); err != nil {
 		return nil, fmt.Errorf("failed to save new refresh token: %w", err)
+	}
+
+	if err := uc.refreshRepo.Delete(ctx, userID); err != nil {
+		uc.logger.Warn("failed to delete old refresh token", "error", err)
 	}
 
 	uc.logger.Info("tokens refreshed", "user_id", userID.String())

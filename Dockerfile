@@ -18,7 +18,6 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 COPY --from=builder /app/auth-service .
-COPY --from=builder /app/migrations ./migrations
 
 RUN adduser -D -g '' auth-service
 USER auth-service

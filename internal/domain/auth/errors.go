@@ -10,4 +10,5 @@ var (
 	ErrEmailNotVerified    = errors.New("email не подтверждён")
 	ErrInvalidVerifyToken  = errors.New("недействительный или истёкший токен верификации")
 	ErrTokenExpired        = errors.New("срок действия токена истёк")
+	ErrUserBanned          = errors.New("пользователь заблокирован")
 )

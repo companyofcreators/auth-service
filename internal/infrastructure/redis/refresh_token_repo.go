@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,7 +59,9 @@ func (r *RefreshTokenRepo) Delete(ctx context.Context, userID uuid.UUID) error {
 	tokenHash, err := r.client.Get(ctx, key).Result()
 	if err == nil && tokenHash != "" {
 		lookupKey := fmt.Sprintf("%s%s", refreshLookupPrefix, tokenHash)
-		_ = r.client.Del(ctx, lookupKey).Err()
+		if derr := r.client.Del(ctx, lookupKey).Err(); derr != nil {
+			slog.Warn("failed to delete refresh token lookup", "error", derr)
+		}
 	}
 
 	err = r.client.Del(ctx, key).Err()
@@ -74,7 +77,9 @@ func (r *RefreshTokenRepo) DeleteAll(ctx context.Context, userID uuid.UUID) erro
 	tokenHash, err := r.client.Get(ctx, key).Result()
 	if err == nil && tokenHash != "" {
 		lookupKey := fmt.Sprintf("%s%s", refreshLookupPrefix, tokenHash)
-		_ = r.client.Del(ctx, lookupKey).Err()
+		if derr := r.client.Del(ctx, lookupKey).Err(); derr != nil {
+			slog.Warn("failed to delete refresh token lookup", "error", derr)
+		}
 	}
 
 	err = r.client.Del(ctx, key).Err()

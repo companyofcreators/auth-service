@@ -1,0 +1,5 @@
+{"time":"2026-05-21T02:17:21.7296191+09:00","level":"INFO","msg":"starting auth service","env":"local"}
+{"time":"2026-05-21T02:17:21.7557058+09:00","level":"INFO","msg":"connected to postgresql"}
+{"time":"2026-05-21T02:17:21.797088+09:00","level":"INFO","msg":"connected to redis"}
+{"time":"2026-05-21T02:17:21.7981764+09:00","level":"INFO","msg":"auth service started","address":":8081"}
+{"time":"2026-05-21T02:17:21.7992519+09:00","level":"ERROR","msg":"http server failed","error":"listen tcp :8081: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted."}

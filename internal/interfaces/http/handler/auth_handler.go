@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
+	"unicode"
 
 	app "github.com/companyofcreators/auth-service/internal/application/auth"
 	domain "github.com/companyofcreators/auth-service/internal/domain/auth"
@@ -12,11 +14,13 @@ import (
 )
 
 type RegisterRequest struct {
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required,min=8"`
-	Name     string `json:"name" validate:"required,min=1,max=100"`
-	Phone    string `json:"phone" validate:"required"`
-	Role     string `json:"role"`
+	Email      string `json:"email" validate:"required,email"`
+	Password   string `json:"password" validate:"required,min=8"`
+	FirstName  string `json:"first_name" validate:"required,min=1,max=100"`
+	LastName   string `json:"last_name" validate:"required,min=1,max=100"`
+	MiddleName string `json:"middle_name" validate:"omitempty,max=100"`
+	Birthdate  string `json:"birthdate" validate:"omitempty,datetime=2006-01-02"`
+	Phone      string `json:"phone" validate:"required"`
 }
 
 type LoginRequest struct {
@@ -92,12 +96,19 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isPasswordComplex(req.Password) {
+		h.writeError(w, http.StatusBadRequest, "пароль должен содержать минимум 8 символов, заглавную букву и цифру")
+		return
+	}
+
 	result, err := h.register.Execute(r.Context(), app.RegisterInput{
-		Email:    req.Email,
-		Password: req.Password,
-		Name:     req.Name,
-		Phone:    req.Phone,
-		Role:     req.Role,
+		Email:      req.Email,
+		Password:   req.Password,
+		FirstName:  req.FirstName,
+		LastName:   req.LastName,
+		MiddleName: req.MiddleName,
+		Birthdate:  req.Birthdate,
+		Phone:      req.Phone,
 	})
 	if err != nil {
 		if errors.Is(err, domain.ErrEmailTaken) {
@@ -142,6 +153,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, domain.ErrEmailNotVerified) {
 			h.writeError(w, http.StatusForbidden, "email не подтверждён")
+			return
+		}
+		if errors.Is(err, domain.ErrUserBanned) {
+			msg := strings.TrimSuffix(err.Error(), ": пользователь заблокирован")
+			h.writeError(w, http.StatusForbidden, msg)
 			return
 		}
 		h.logger.Error("login failed", "error", err)
@@ -233,32 +249,6 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, SuccessResponse{Message: "email успешно подтверждён"})
 }
 
-func (h *AuthHandler) Validate(w http.ResponseWriter, r *http.Request) {
-	token := r.Header.Get("Authorization")
-	if token == "" {
-		h.writeError(w, http.StatusUnauthorized, "заголовок Authorization обязателен")
-		return
-	}
-
-	if len(token) > 7 && token[:7] == "Bearer " {
-		token = token[7:]
-	}
-
-	result, err := h.validate.Execute(r.Context(), app.ValidateInput{
-		AccessToken: token,
-	})
-	if err != nil {
-		h.writeError(w, http.StatusUnauthorized, "недействительный access-токен")
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, AuthResponse{
-		UserID: result.UserID,
-		Email:  result.Email,
-		Roles:  result.Roles,
-	})
-}
-
 func (h *AuthHandler) setCookies(w http.ResponseWriter, accessToken, refreshToken string) {
 	secure := h.env == "production"
 
@@ -268,7 +258,7 @@ func (h *AuthHandler) setCookies(w http.ResponseWriter, accessToken, refreshToke
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   h.accessTTL,
 	})
 
@@ -278,7 +268,7 @@ func (h *AuthHandler) setCookies(w http.ResponseWriter, accessToken, refreshToke
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   h.refreshTTL,
 	})
 }
@@ -290,7 +280,7 @@ func (h *AuthHandler) clearCookies(w http.ResponseWriter) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   h.env == "production",
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
 
@@ -300,7 +290,7 @@ func (h *AuthHandler) clearCookies(w http.ResponseWriter) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   h.env == "production",
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
 }
@@ -323,6 +313,23 @@ func (h *AuthHandler) getUserIDFromContext(r *http.Request) string {
 		return ""
 	}
 	return id
+}
+
+func isPasswordComplex(password string) bool {
+	if len(password) < 8 {
+		return false
+	}
+	hasUpper := false
+	hasDigit := false
+	for _, r := range password {
+		if unicode.IsUpper(r) {
+			hasUpper = true
+		}
+		if unicode.IsDigit(r) {
+			hasDigit = true
+		}
+	}
+	return hasUpper && hasDigit
 }
 
 func (h *AuthHandler) writeJSON(w http.ResponseWriter, status int, data interface{}) {

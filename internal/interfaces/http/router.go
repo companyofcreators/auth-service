@@ -3,96 +3,16 @@ package http
 import (
 	"encoding/json"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/companyofcreators/auth-service/internal/interfaces/http/handler"
+	"github.com/companyofcreators/auth-service/pkg/header_auth"
 )
 
-type rateLimitStore struct {
-	mu      sync.Mutex
-	entries map[string][]time.Time
-}
-
-func newRateLimitStore() *rateLimitStore {
-	s := &rateLimitStore{
-		entries: make(map[string][]time.Time),
-	}
-	go s.cleanup()
-	return s
-}
-
-func (s *rateLimitStore) cleanup() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		s.mu.Lock()
-		for ip, times := range s.entries {
-			cutoff := time.Now().Add(-1 * time.Minute)
-			var valid []time.Time
-			for _, t := range times {
-				if t.After(cutoff) {
-					valid = append(valid, t)
-				}
-			}
-			if len(valid) == 0 {
-				delete(s.entries, ip)
-			} else {
-				s.entries[ip] = valid
-			}
-		}
-		s.mu.Unlock()
-	}
-}
-
-func (s *rateLimitStore) Allow(ip string, limit int) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now()
-	cutoff := now.Add(-1 * time.Minute)
-
-	times := s.entries[ip]
-	var valid []time.Time
-	for _, t := range times {
-		if t.After(cutoff) {
-			valid = append(valid, t)
-		}
-	}
-
-	if len(valid) >= limit {
-		return false
-	}
-
-	valid = append(valid, now)
-	s.entries[ip] = valid
-	return true
-}
-
-func LoginRateLimiter(store *rateLimitStore) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
-			if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-				ip = forwarded
-			}
-
-			if !store.Allow(ip, 5) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				w.Write([]byte(`{"error":"слишком много запросов","message":"превышен лимит запросов, попробуйте позже"}`))
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func NewRouter(authHandler *handler.AuthHandler) chi.Router {
+func NewRouter(authHandler *handler.AuthHandler, adminHandler *handler.AdminHandler, signer *header_auth.HeaderSigner) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -100,8 +20,7 @@ func NewRouter(authHandler *handler.AuthHandler) chi.Router {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-
-	rateLimitStore := newRateLimitStore()
+	r.Use(signer.VerifyMiddleware)
 
 	r.Get("/internal/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -113,12 +32,36 @@ func NewRouter(authHandler *handler.AuthHandler) chi.Router {
 	})
 
 	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.With(LoginRateLimiter(rateLimitStore)).Post("/login", authHandler.Login)
-		r.With(LoginRateLimiter(rateLimitStore)).Post("/register", authHandler.Register)
+		r.Post("/login", authHandler.Login)
+		r.Post("/register", authHandler.Register)
 		r.Post("/refresh", authHandler.Refresh)
 		r.Delete("/logout", authHandler.Logout)
 		r.Get("/verify-email", authHandler.VerifyEmail)
 	})
 
+	// Internal admin routes called from the API gateway.
+	r.Route("/api/v1/admin", func(r chi.Router) {
+		r.Post("/users/{id}/ban", adminHandler.BanUser)
+		r.Post("/users/{id}/unban", adminHandler.UnbanUser)
+		r.Delete("/users/{id}", adminHandler.DeleteUser)
+	})
+
+	// Internal role sync routes called from user-service.
+	r.Route("/internal/users/{id}/roles", func(r chi.Router) {
+		r.Post("/{role}", adminHandler.AddRole)
+		r.Delete("/{role}", adminHandler.RemoveRole)
+	})
+
 	return r
+}
+
+// bodySizeLimiter returns middleware that wraps http.MaxBytesReader to limit
+// request body size and prevent memory exhaustion attacks.
+func bodySizeLimiter(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

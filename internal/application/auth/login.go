@@ -72,6 +72,14 @@ func (uc *LoginUseCase) Execute(ctx context.Context, input LoginInput) (*LoginOu
 		return nil, domain.ErrEmailNotVerified
 	}
 
+	if cred.IsBanned {
+		msg := "ваш аккаунт заблокирован"
+		if cred.BannedReason != "" {
+			msg += ": " + cred.BannedReason
+		}
+		return nil, fmt.Errorf("%s: %w", msg, domain.ErrUserBanned)
+	}
+
 	roles, err := uc.credentialRepo.GetRoles(ctx, cred.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get roles: %w", err)
