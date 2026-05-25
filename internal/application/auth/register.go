@@ -56,7 +56,7 @@ type EventPublisher interface {
 	PublishUserCreated(userID, email string, roles []string) error
 	PublishAuthLogin(userID, email string, roles []string) error
 	PublishAuthLogout(userID string) error
-	PublishVerificationCreated(userID, email string) error
+	PublishVerificationCreated(userID, email, name, verifyToken string) error
 }
 
 func NewRegisterUseCase(
@@ -184,7 +184,7 @@ func (uc *RegisterUseCase) Execute(ctx context.Context, input RegisterInput) (*R
 		return nil, fmt.Errorf("failed to save verify token: %w", err)
 	}
 
-	if err := uc.kafka.PublishVerificationCreated(userID.String(), input.Email); err != nil {
+	if err := uc.kafka.PublishVerificationCreated(userID.String(), input.Email, input.Name, verifyToken); err != nil {
 		uc.logger.Warn("failed to publish verification.created event", "error", err)
 	}
 

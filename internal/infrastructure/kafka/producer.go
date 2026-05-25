@@ -16,11 +16,13 @@ type Producer struct {
 }
 
 type Event struct {
-	Type      string    `json:"type"`
-	UserID    string    `json:"user_id"`
-	Email     string    `json:"email,omitempty"`
-	Roles     []string  `json:"roles,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	Type         string    `json:"type"`
+	UserID       string    `json:"user_id"`
+	Email        string    `json:"email,omitempty"`
+	Name         string    `json:"name,omitempty"`
+	VerifyToken  string    `json:"verify_token,omitempty"`
+	Roles        []string  `json:"roles,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
 }
 
 func NewProducer(brokers []string, logger *slog.Logger) *Producer {
@@ -89,11 +91,13 @@ func (p *Producer) PublishAuthLogout(userID string) error {
 	})
 }
 
-func (p *Producer) PublishVerificationCreated(userID, email string) error {
+func (p *Producer) PublishVerificationCreated(userID, email, name, verifyToken string) error {
 	return p.Publish("user.verification.created", Event{
-		Type:   "user.verification.created",
-		UserID: userID,
-		Email:  email,
+		Type:        "user.verification.created",
+		UserID:      userID,
+		Email:       email,
+		Name:        name,
+		VerifyToken: verifyToken,
 	})
 }
 
