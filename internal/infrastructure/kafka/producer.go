@@ -11,8 +11,9 @@ import (
 )
 
 type Producer struct {
-	writer *kafka.Writer
-	logger *slog.Logger
+	writer  *kafka.Writer
+	logger  *slog.Logger
+	baseURL string
 }
 
 type Event struct {
@@ -23,12 +24,13 @@ type Event struct {
 	FirstName    string    `json:"first_name,omitempty"`
 	LastName     string    `json:"last_name,omitempty"`
 	Phone        string    `json:"phone,omitempty"`
-	VerifyToken  string    `json:"verify_token,omitempty"`
+	VerifyToken      string    `json:"verify_token,omitempty"`
+	VerificationURL  string    `json:"verification_url,omitempty"`
 	Roles        []string  `json:"roles,omitempty"`
 	Timestamp    time.Time `json:"timestamp"`
 }
 
-func NewProducer(brokers []string, logger *slog.Logger) *Producer {
+func NewProducer(brokers []string, logger *slog.Logger, baseURL string) *Producer {
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(brokers...),
 		Balancer:     &kafka.LeastBytes{},
@@ -38,8 +40,9 @@ func NewProducer(brokers []string, logger *slog.Logger) *Producer {
 	}
 
 	return &Producer{
-		writer: writer,
-		logger: logger,
+		writer:  writer,
+		logger:  logger,
+		baseURL: baseURL,
 	}
 }
 
@@ -99,11 +102,12 @@ func (p *Producer) PublishAuthLogout(userID string) error {
 
 func (p *Producer) PublishVerificationCreated(userID, email, name, verifyToken string) error {
 	return p.Publish("user.verification.created", Event{
-		Type:        "user.verification.created",
-		UserID:      userID,
-		Email:       email,
-		Name:        name,
-		VerifyToken: verifyToken,
+		Type:             "user.verification.created",
+		UserID:           userID,
+		Email:            email,
+		Name:             name,
+		VerifyToken:      verifyToken,
+		VerificationURL:  fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", p.baseURL, verifyToken),
 	})
 }
 

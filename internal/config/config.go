@@ -25,6 +25,7 @@ type Config struct {
 	BcryptCost        int           `env:"BCRYPT_COST" env-default:"12"`
 	RequireEmailVerified bool   `env:"REQUIRE_EMAIL_VERIFIED" env-default:"false"`
 	FrontendURL           string `env:"FRONTEND_URL" env-default:"http://localhost:5173"`
+	BaseURL               string `env:"BASE_URL" env-default:"http://localhost:8080"`
 	HeaderHMACKey         string `env:"HEADER_HMAC_KEY" env-default:"diploma-internal-hmac-secret-key-2026"`
 }
 

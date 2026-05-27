@@ -78,7 +78,7 @@ func main() {
 
 	bcryptHasher := hasher.NewBcryptHasher(cfg.BcryptCost)
 
-	kafkaProducer := infrakafka.NewProducer(cfg.KafkaBrokers, logger)
+	kafkaProducer := infrakafka.NewProducer(cfg.KafkaBrokers, logger, cfg.BaseURL)
 	defer kafkaProducer.Close()
 
 	credentialRepo := db.NewCredentialRepo(pgDB.SqlxDB())
